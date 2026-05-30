@@ -100,7 +100,7 @@ public class UserCommonController {
         UserEntity loginUser = StpUtil.getSessionByLoginId(StpUtil.getLoginId())
                 .getModel("loginUser", UserEntity.class);
         if(loginUser!=null){
-            loginUser.setPassword(null); //早就去敏过了。也许有点多余。
+            //loginUser.setPassword(null); //早就去敏过了。也许有点多余。
             return Result.success(loginUser);
         }
         String userId = StpUtil.getLoginIdAsString();
@@ -186,7 +186,7 @@ public class UserCommonController {
             @RequestParam(defaultValue = "1") long current,
             @RequestParam(defaultValue = "10") long size,
             @RequestParam(defaultValue = "TEXT") String taskType,
-            @RequestParam(defaultValue = "SUCCESS") String taskStatus,
+            @RequestParam(required = false) String taskStatus,
             @RequestParam(required = false) Boolean requireManual,
             @RequestParam(defaultValue = "time") String orderBy,
             @RequestParam(defaultValue = "desc") String orderType){

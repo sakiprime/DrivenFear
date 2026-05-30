@@ -16,6 +16,7 @@ public class RabbitConfig {
 
     public static final String TEXT_TASK_QUEUE = "AITaskQueue";
     public static final String IMAGE_TASK_QUEUE = "ImageTaskQueue";
+    public static final String VIDEO_TASK_QUEUE = "VideoTaskQueue";
     public static final String FAILED_TASK_QUEUE = "FailedTaskQueue";
     public static final String ALIPAY_QUEUE = "AliPayQueue";
     @Bean
@@ -25,6 +26,10 @@ public class RabbitConfig {
     @Bean
     public Queue ImageTaskQueue() {
         return new Queue(IMAGE_TASK_QUEUE, true);
+    }
+    @Bean
+    public Queue VideoTaskQueue() {
+        return new Queue(VIDEO_TASK_QUEUE, true);
     }
     @Bean
     public Queue FailedTaskQueue() {

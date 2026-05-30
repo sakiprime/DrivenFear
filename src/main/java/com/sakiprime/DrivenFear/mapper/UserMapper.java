@@ -80,6 +80,15 @@ public interface UserMapper extends BaseMapper<UserEntity> {
     UserEntity selectByEmail(@Param("email") String email);
 
     /**
+     * 取密码哈希（仅登录校验用，邮箱路线）
+     *
+     * @param email 电子邮件
+     * @return {@link String } BCrypt哈希
+     */
+    @Select("SELECT password FROM user_data WHERE email = #{email}")
+    String selectPasswordByEmail(@Param("email") String email);
+
+    /**
      * 按id选择电子邮件
      *
      * @param userId 用户ID
@@ -103,6 +112,15 @@ public interface UserMapper extends BaseMapper<UserEntity> {
         WHERE email = #{email}
         """)
     String selectIdByEmail(@Param("email") String email);
+    /**
+     * 取密码哈希（仅LoginService密码校验用）
+     *
+     * @param userId 用户ID
+     * @return {@link String } BCrypt哈希
+     */
+    @Select("SELECT password FROM user_data WHERE user_id = #{userId}")
+    String selectPasswordById(@Param("userId") String userId);
+
     /**
      * 增加Token平衡原子
      *

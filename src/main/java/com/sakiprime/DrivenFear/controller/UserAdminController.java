@@ -157,6 +157,20 @@ public class UserAdminController {
     }
 
     /**
+     * 更新充值包
+     *
+     * @param packageEntity 包实体
+     * @return {@link Result }<{@link Void }>
+     */
+    @PutMapping("/rechargepackage")
+    @ApiRateLimit(interFace = "updateRechargePackage")
+    @RequireRole(role = "admin")
+    Result<Void> updateRechargePackage(@RequestBody RechargePackageEntity packageEntity){
+
+        return userAdminService.updateRechargePackage(packageEntity);
+    }
+
+    /**
      * 删除充值包
      *
      * @param packageId 软件包ID
@@ -337,5 +351,19 @@ public class UserAdminController {
     ){
 
         return userAdminService.toggleAICallTaskAppealAdmin(userId,orderId,isAppeal);
+    }
+
+
+    /**
+     * 管理后台概览数据
+     *
+     * @return {@link Result }<{@link DashboardVO }>
+     */
+    @GetMapping("/dashboard")
+    @ApiRateLimit(interFace = "getDashboard")
+    @RequireRole(role = "admin")
+    public Result<DashboardVO> getDashboard() {
+
+        return userAdminService.getDashboard();
     }
 }

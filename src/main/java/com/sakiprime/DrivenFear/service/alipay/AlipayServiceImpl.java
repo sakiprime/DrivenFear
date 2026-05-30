@@ -16,6 +16,7 @@ import com.sakiprime.DrivenFear.common.util.AmountUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -23,6 +24,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import static com.sakiprime.DrivenFear.config.RabbitDelayConfig.DELAY_CONSUMER_QUEUE;
 import static com.sakiprime.DrivenFear.config.RabbitDelayConfig.DELAY_WAIT_QUEUE;
@@ -43,6 +45,7 @@ public class AlipayServiceImpl implements AlipayService {
     private final AliPayServiceTransaction aliPayServiceTransaction;
     private final RabbitTemplate rabbitTemplate;
     private final UserMapper userMapper;
+    private final RedisTemplate<String, Object> redisTemplate;
 
     private static final DateTimeFormatter ALIPAY_TIME_FORMATTER = DateTimeFormatter.
             ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -55,8 +58,15 @@ public class AlipayServiceImpl implements AlipayService {
      */
     @Override
     public RechargePackageEntity getPackageInfo(Long id){
+        String key = "recharge:package:" + id;
+        RechargePackageEntity cached = (RechargePackageEntity) redisTemplate.opsForValue().get(key);
+        if (cached != null) return cached;
 
-        return  rechargePackageMapper.selectById(id);
+        RechargePackageEntity entity = rechargePackageMapper.selectById(id);
+        if (entity != null) {
+            redisTemplate.opsForValue().set(key, entity, 60, TimeUnit.SECONDS);
+        }
+        return entity;
     }
 
     /**
@@ -65,11 +75,21 @@ public class AlipayServiceImpl implements AlipayService {
      * @return {@link Result }<{@link List }<{@link RechargePackageEntity }>>
      */
     @Override
+    @SuppressWarnings("unchecked")
     public Result<List<RechargePackageEntity>> getPackageInfoList() {
+        String key = "recharge:package:list";
+        Object cached = redisTemplate.opsForValue().get(key);
+        if (cached instanceof List<?> list) {
+            if (!list.isEmpty() && list.get(0) instanceof RechargePackageEntity) {
+                return Result.success((List<RechargePackageEntity>) list);
+            }
+        }
+
         LambdaQueryWrapper<RechargePackageEntity> queryWrapper = new LambdaQueryWrapper<>();
         queryWrapper.eq(RechargePackageEntity::getOnSale, true);
 
         List<RechargePackageEntity> list = rechargePackageMapper.selectList(queryWrapper);
+        redisTemplate.opsForValue().set(key, list, 60, TimeUnit.SECONDS);
         return Result.success(list);
     }
 
@@ -141,6 +161,13 @@ public class AlipayServiceImpl implements AlipayService {
         if(!ResponseChecker.success(response)){
             return Result.fail(500,"创建支付宝订单失败，请重试。");
         }
+        // 打印表单HTML中的notify_url，确认回调地址
+        if (response.getBody() != null && response.getBody().contains("notify_url")) {
+            String snippet = response.getBody().replaceAll("[\r\n]", " ").replaceAll(".*(notify_url[^\"]*\"[^\"]*\").*", "$1");
+            log.info("支付表单notify_url片段: {}", snippet.length() > 200 ? snippet.substring(0, 200) : snippet);
+        } else {
+            log.warn("支付表单中未找到notify_url，body长度={}", response.getBody() == null ? 0 : response.getBody().length());
+        }
         String logInfo = String.format("成功创建支付宝充值订单。订单号:%s,用户:%s,套餐ID:%s",
                 orderId, purchaseEntity.getUserId(), purchaseEntity.getId());
         log.info(logInfo);
@@ -158,7 +185,7 @@ public class AlipayServiceImpl implements AlipayService {
                 DELAY_WAIT_QUEUE,
                 correlation,//这里直接把correlation当内容转发。
                 message -> {
-                    message.getMessageProperties().setExpiration("2000000");//33min
+                    message.getMessageProperties().setExpiration("2000000");//约33min
                     return message;
                 }
         );
@@ -211,19 +238,25 @@ public class AlipayServiceImpl implements AlipayService {
 
             boolean isValid = localAmount.equals(paymentAmount);
             if (!isValid) {
-                return false; // 金额不一致，直接拒绝
+                return false; //金额不一致拒绝
             }
 
-            //利用支付宝回调进行重试
-            return updatePurchaseInfo(purchaseInfo);
-        }//回调显示支付成功
-        if(!handleRechargeSuccess(purchaseInfo)){
-            String logInfo = String.format("[需要人工核查]异步回调订单处理失败|用户:%s,订单:%s", purchaseInfo.getUserId(),purchaseInfo.getOrderId());
-            log.error(logInfo);
-            userMapper.updatePayOrderNeedManual(purchaseInfo.getUserId(),
-                    true);
+            //支付成功，发放Token
+            if (!handleRechargeSuccess(purchaseInfo)) {
+                //TODO 这里失败的时候没有标记订单的需人工处理状态。值得考虑
+                String logInfo = String.format("[需要人工核查]异步回调订单给予Token失败|用户:%s,订单:%s", purchaseInfo.getUserId(), purchaseInfo.getOrderId());
+                log.error(logInfo);
+                userMapper.updatePayOrderNeedManual(purchaseInfo.getUserId(), true);
+                return false;
+            }
+            log.info("支付宝回调成功，订单支付完成|用户:{},订单号:{}",
+                    purchaseInfo.getUserId(), purchaseInfo.getOrderId());
+            return true;
         }
 
+        // 非成功状态（如 TRADE_CLOSED），关闭订单
+        handleRechargeClosed(purchaseInfo);
+        log.info("支付宝回调非成功状态，已关闭|订单号:{},状态:{}", purchaseInfo.getOrderId(), tradeStatus);
         return true;
     }
 
@@ -236,8 +269,7 @@ public class AlipayServiceImpl implements AlipayService {
      */
     @Override
     public boolean handleRechargeClosed(UserRechargeOrderEntity purchase){
-        purchase.setTradeStatus("CLOSED");
-        return updatePurchaseInfo(purchase);
+        return userRechargeMapper.deleteById(purchase.getOrderId()) > 0;
     }
 
     /**
@@ -249,6 +281,7 @@ public class AlipayServiceImpl implements AlipayService {
     @Override
     public boolean handleRechargeSuccess(UserRechargeOrderEntity purchase){
         purchase.setTradeStatus("TRADE_SUCCESS");
+        purchase.setTokenGranted(true);
         return aliPayServiceTransaction.handleRechargeSuccessTransactional(purchase);
     }
 }

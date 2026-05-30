@@ -23,7 +23,8 @@ public class UserDTO {
             message = "账号长度不符合规范，或包含特殊字符", groups = {//LoginGroup.class, 因为要接轨邮箱登录暂时注释掉。
             RegisterGroup.class})
     @Pattern(regexp = "^[a-zA-Z0-9_@.-]{4,100}$",
-            message = "账号长度不符合规范，或包含特殊字符", groups = {//更宽泛能同时满足email和userId的正则。
+            message = "账号长度不符合规范，或包含特殊字符", groups = {
+            //更宽泛能同时满足email和userId的正则。由于注册的时候账号是严格正则，所以login场景包含@的userId必然是邮箱。
             LoginGroup.class})
     private String userId;
 

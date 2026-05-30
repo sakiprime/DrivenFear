@@ -49,25 +49,33 @@ public class ImageTaskConsumer {
 
         try {
             boolean isSuccess = imageConsumerService.saveOrderAndDeduction(request);
-
-            if (!isSuccess) {
-                channel.basicAck(deliveryTag, false);
-                log.warn("图片任务扣款存单失败，已转存到人工队列。订单号: {}", request.getOrderId());
-                return;
-            }
-
-            Result<Void> handleResult = imageConsumerService.sendTaskToApi(request.getOrderId());
-            if (handleResult.getCode() != 200) {
-                log.warn("图片任务处理失败，重新入队。订单号: {}", request.getOrderId());
-                throw new Exception(handleResult.getMsg());
-            }
             channel.basicAck(deliveryTag, false);
-
-            log.info("图片任务处理成功，已确认消息。订单号: {}", request.getOrderId());
-
+            if (!isSuccess) {
+                log.warn("图片任务扣款存单失败，重新入队。订单号: {}", request.getOrderId());
+                throw new Exception("图片任务扣款存单失败");
+            }
+            Result<Void> handleResult;
+            for(int i= 1; i<=3;i++) {
+                try {
+                    handleResult = imageConsumerService.sendTaskToApi(request.getOrderId());
+                    if (handleResult.getCode() != 200) {
+                        if (i<3) {
+                            log.warn("图片任务处理失败，进行第{}次重试。订单号: {}", i, request.getOrderId());
+                        }
+                        else log.warn("图片任务处理3次尝试都失败。订单号: {}",request.getOrderId());
+                    }
+                    else {
+                        log.info("图片任务处理成功。订单号: {}", request.getOrderId());
+                        return;
+                    }
+                }
+                catch (Exception e) {
+                    if (i<3) log.warn("Api调用异常，图片任务处理失败，进行第{}次重试。订单号: {}", i, request.getOrderId());
+                }
+            }
+            imageConsumerService.markApiCallFailed(request.getOrderId());
         } catch (Exception e) {
             try {
-                channel.basicAck(deliveryTag, false);
                 if (correlation.getConsumerRetryCount() < 3) {
                     correlation.incrementConsumerRetryCount();
                     log.warn("图片任务系统异常，消息重新入队。订单号: {},第{}次重试",

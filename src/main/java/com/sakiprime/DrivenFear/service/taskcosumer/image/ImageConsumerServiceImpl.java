@@ -61,6 +61,7 @@ public class ImageConsumerServiceImpl implements ImageConsumerService {
 
     @Override
     public boolean markFailedTask(AICallTaskEntity task) {
+
         if (aiCallTaskMapper.selectById(task.getOrderId()) != null) {
             return true;
         }
@@ -76,17 +77,18 @@ public class ImageConsumerServiceImpl implements ImageConsumerService {
     public void markApiCallFailed(Long orderId) {
         AICallTaskEntity task = aiCallTaskMapper.selectById(orderId);
         if (task == null) {
-            log.warn("图片任务API调用标记失败：订单不存在, orderId:{}", orderId);
+            log.warn("无法标记图片任务执行失败：订单不存在, orderId:{}", orderId);
             return;
         }
         aiCallTaskMapper.updateTaskStatus(orderId, TaskStatusEnum.FAILED.getCode());
         aiCallTaskMapper.updateTaskRequireManual(orderId, true);
         userMapper.updateTaskNeedManual(task.getUserId(), true);
-        log.warn("图片任务API调用已标记为失败，订单号:{}", orderId);
+        log.warn("图片任务执行已标记为失败，订单号:{}", orderId);
     }
 
     @Override
     public Result<Void> sendTaskToApi(Long orderId) {
+
         AICallTaskEntity task = aiCallTaskMapper.selectById(orderId);
         if (task == null) {
             log.warn("图片生成任务执行失败:未知的订单{}", orderId);
@@ -94,14 +96,23 @@ public class ImageConsumerServiceImpl implements ImageConsumerService {
         }
         String userId = task.getUserId();
         if (!task.getTaskStatus().equals(TaskStatusEnum.PENDING.getCode())) {
-            log.warn("图片生成任务执行失败:任务已在执行或执行完毕{}", task.getTaskStatus());
+            log.warn("图片生成任务执行异常:任务已在执行或执行完毕{}", task.getTaskStatus());
+            return Result.fail();
         }
         aiCallTaskMapper.updateTaskStatus(orderId, TaskStatusEnum.PROCESSING.getCode());
 
         AITaskStrategy strategy = aiTaskFactory.getStrategy(task.getTaskType());
-        String imageUrl = strategy.processTask(task);
+        String imageUrl;
+        try {
+            imageUrl = strategy.processTask(task);
+        } catch (Exception e) {
+            log.warn("图片生成任务API调用异常，回退状态为PENDING。订单号: {}", orderId, e);
+            aiCallTaskMapper.updateTaskStatus(orderId, TaskStatusEnum.PENDING.getCode());
+            return Result.fail();
+        }
         if (imageUrl == null) {
             aiCallTaskMapper.updateTaskStatus(orderId, TaskStatusEnum.PENDING.getCode());
+            log.warn("图片生成任务API调用失败(可能因为请求参数错误)，回退状态为PENDING。订单号: {}", orderId);
             return Result.fail();
         }
         task.setImageUrl(imageUrl);

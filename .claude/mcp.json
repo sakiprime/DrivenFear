@@ -1,0 +1,32 @@
+{
+  "mcpServers": {
+    "mysql": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@benborla29/mcp-server-mysql"],
+      "env": {
+        "MYSQL_HOST": "127.0.0.1",
+        "MYSQL_PORT": "3306",
+        "MYSQL_USER": "pema_user",
+        "MYSQL_PASSWORD": "sakiprime233",
+        "MYSQL_DATABASE": "drivenfear",
+        "ALLOW_INSERT_OPERATION": "true",
+        "ALLOW_UPDATE_OPERATION": "true",
+        "ALLOW_DELETE_OPERATION": "true",
+        "ALLOW_DDL_OPERATION": "true"
+      }
+    },
+    "jetbrains": {
+      "type": "stdio",
+      "command": "D:\\Program Files\\JetBrains\\IntelliJ IDEA 2025.3.4\\jbr\\bin\\java",
+      "args": [
+        "-classpath",
+        "D:\\Program Files\\JetBrains\\IntelliJ IDEA 2025.3.4\\plugins\\mcpserver\\lib\\mcpserver-frontend.jar;D:\\Program Files\\JetBrains\\IntelliJ IDEA 2025.3.4\\lib\\util-8.jar;D:\\Program Files\\JetBrains\\IntelliJ IDEA 2025.3.4\\lib\\module-intellij.libraries.ktor.client.cio.jar;D:\\Program Files\\JetBrains\\IntelliJ IDEA 2025.3.4\\lib\\module-intellij.libraries.ktor.client.jar;D:\\Program Files\\JetBrains\\IntelliJ IDEA 2025.3.4\\lib\\module-intellij.libraries.ktor.network.tls.jar;D:\\Program Files\\JetBrains\\IntelliJ IDEA 2025.3.4\\lib\\module-intellij.libraries.ktor.io.jar;D:\\Program Files\\JetBrains\\IntelliJ IDEA 2025.3.4\\lib\\module-intellij.libraries.ktor.utils.jar;D:\\Program Files\\JetBrains\\IntelliJ IDEA 2025.3.4\\lib\\module-intellij.libraries.kotlinx.io.jar;D:\\Program Files\\JetBrains\\IntelliJ IDEA 2025.3.4\\lib\\module-intellij.libraries.kotlinx.serialization.core.jar;D:\\Program Files\\JetBrains\\IntelliJ IDEA 2025.3.4\\lib\\module-intellij.libraries.kotlinx.serialization.json.jar",
+        "com.intellij.mcpserver.stdio.McpStdioRunnerKt"
+      ],
+      "env": {
+        "IJ_MCP_SERVER_PORT": "64342"
+      }
+    }
+  }
+}

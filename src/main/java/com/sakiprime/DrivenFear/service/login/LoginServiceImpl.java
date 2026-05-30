@@ -82,17 +82,20 @@ public class LoginServiceImpl implements LoginService {
     public Result<UserEntity> login(String id, String password){
 
         UserEntity user;
+        String passwordFact;
         if(Validator.isEmail(id)){
             user = userMapper.selectByEmail(id);
+            passwordFact = userMapper.selectPasswordByEmail(id);
         }
         else {
             user = userMapper.selectById(id);
+            passwordFact = userMapper.selectPasswordById(id);
         }
         if(user == null || user.isBanned()){
             return Result.fail();
         }
-        if(BCrypt.checkpw(password,user.getPassword())){
-            user.setPassword(null);//去敏密码，虽然sessions存储在后端。
+        if(BCrypt.checkpw(password,passwordFact)){
+            //user.setPassword(null);//去敏密码，虽然sessions存储在后端。换用了更安全的方式。
             return Result.success(user);
         }
         else {
@@ -110,6 +113,9 @@ public class LoginServiceImpl implements LoginService {
     @Override
     public String getEmailByUserId(String userId){
 
+        if(Validator.isEmail(userId)){
+            return  userId;
+        }
         return userMapper.selectEmailById(userId);
     }
 

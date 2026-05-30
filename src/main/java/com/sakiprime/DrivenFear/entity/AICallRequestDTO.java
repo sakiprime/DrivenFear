@@ -49,6 +49,14 @@ public class AICallRequestDTO {
      */
     private String params;
     /**
+     * 预编码模板JSON（服务端注入，不来自前端）
+     */
+    private String template;
+    /**
+     * 作品描述
+     */
+    private String taskDescription;
+    /**
      * 创建时间
      */
     @TableField(fill = FieldFill.INSERT)

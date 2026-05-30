@@ -7,14 +7,16 @@ import com.qiniu.storage.Region;
 import com.qiniu.storage.UploadManager;
 import com.qiniu.util.Auth;
 import com.sakiprime.DrivenFear.common.util.Result;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
 
+import cn.hutool.core.util.IdUtil;
 import jakarta.annotation.PostConstruct;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 
+@Slf4j
 @Component
 public class QiniuOSS {
     @Value("${qiniu.access-key}")
@@ -28,6 +30,14 @@ public class QiniuOSS {
 
     private static final List<String> ALLOW_SUFFIX = Arrays.asList("jpg", "jpeg", "png", "gif");
     private static final List<String> ALLOW_VIDEO_SUFFIX = Arrays.asList("mp4", "mov", "avi", "wmv", "flv", "mkv", "webm");
+
+    private static final Map<String, List<String>> TASK_TYPE_EXTENSIONS = Map.of(
+            "IMAGE", Arrays.asList("jpg", "jpeg", "png", "gif", "webp"),
+            "VIDEO", Arrays.asList("mp4", "mov", "avi", "webm"),
+            "MUSIC", Arrays.asList("mp3", "wav", "flac", "ogg")
+    );
+
+    private static final long REF_FILE_MAX_SIZE = 10 * 1024 * 1024; // 10MB
 
     private static Auth auth;
     private static Configuration cfg;
@@ -66,7 +76,7 @@ public class QiniuOSS {
         String key = "avatar/user_" + userId + "_avatar." + ext;
 
         uploadManager.put(file.getInputStream(), key, upToken, null, null);
-        return Result.success(domain + "/" + key);
+        return Result.success(domain + key);
     }
 
     /**
@@ -94,7 +104,51 @@ public class QiniuOSS {
 
         String key = "resource/" + userId + "/" + prefix + "." + ext;
         bucketManager.fetch(sourceUrl, bucketName, key);
-        return Result.success(domain + "/" + key);
+        return Result.success(domain + key);
+    }
+
+    public Result<List<String>> uploadRefs(MultipartFile[] files, String taskType) {
+        List<String> allowedExts = TASK_TYPE_EXTENSIONS.get(taskType);
+        if (allowedExts == null) {
+            return Result.fail(400, "不支持的任务类型: " + taskType);
+        }
+
+        String upToken;
+        try {
+            upToken = auth.uploadToken(bucketName);
+        } catch (Exception e) {
+            log.error("获取七牛上传凭证失败, taskType:{}", taskType, e);
+            return Result.fail(500, "服务器繁忙，请稍后再试。");
+        }
+        UploadManager uploadManager = new UploadManager(cfg);
+
+        List<String> urls = new ArrayList<>(files.length);
+
+        for (MultipartFile file : files) {
+            if (file.isEmpty()) continue;
+
+            if (file.getSize() > REF_FILE_MAX_SIZE) {
+                log.warn("参考文件超限, size:{}, name:{}", file.getSize(), file.getOriginalFilename());
+                return Result.fail(400, "文件大小不能超过10MB: " + file.getOriginalFilename());
+            }
+
+            String suffix = FileUtil.extName(file.getOriginalFilename());
+            String ext = (suffix == null ? "" : suffix.toLowerCase());
+            if (!allowedExts.contains(ext)) {
+                return Result.fail(400, "任务类型 " + taskType + " 不支持的文件格式: ." + ext);
+            }
+
+            String key = "refs/" + taskType + "/" + IdUtil.fastSimpleUUID() + "." + ext;
+            try {
+                uploadManager.put(file.getInputStream(), key, upToken, null, null);
+            } catch (Exception e) {
+                log.error("七牛上传失败, key:{}, taskType:{}", key, taskType, e);
+                return Result.fail(500, "文件上传失败: " + file.getOriginalFilename());
+            }
+            urls.add(domain + key);
+        }
+
+        return Result.success("上传成功", urls);
     }
 
     /**

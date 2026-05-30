@@ -52,8 +52,9 @@ public class AlipayOrderCheckConsumer {
         //TODO 如果订单确认失败导致的异常可能重复发送消息！
         AlipayTradeQueryResponse queryResponse;
         try {
-            //如果订单状态为处理完成，快速返回。
-            if ("TRADE_SUCCESS".equals(purchase.getTradeStatus())) {
+            //如果订单已处理完成（trade_status=SUCCESS且token已发放），快速返回。
+            if ("TRADE_SUCCESS".equals(purchase.getTradeStatus())
+                    && Boolean.TRUE.equals(purchase.getTokenGranted())) {
                 log.info("订单已处理完成，无需补偿，订单号:{}", purchase.getOrderId());
                 channel.basicAck(deliveryTag, false);
                 return;
@@ -61,6 +62,7 @@ public class AlipayOrderCheckConsumer {
             queryResponse = Factory.Payment.Common()
                     .query(purchase.getOrderId().toString());
             if (!ResponseChecker.success(queryResponse)) {
+                log.error(queryResponse.getMsg());
                 throw new RuntimeException("支付宝查单失败");
             }
         }
@@ -70,7 +72,7 @@ public class AlipayOrderCheckConsumer {
                 if(correlation.getConsumerRetryCount()<3){
                     correlation.incrementConsumerRetryCount();
                     log.error("AliPay主动查单异常，消息重新入队。订单号: {},第{}次重试",
-                            purchase.getOrderId(),correlation.getConsumerRetryCount(), e);
+                            purchase.getOrderId(),correlation.getConsumerRetryCount());
                     rabbitTemplate.convertAndSend(DELAY_CONSUMER_QUEUE,
                             correlation.getMessage(), correlation);
                 }
@@ -90,8 +92,12 @@ public class AlipayOrderCheckConsumer {
             case "TRADE_SUCCESS":
             case "TRADE_FINISHED":
                 //当回查补偿触发时，异步回调没有正确录入支付时间,以补偿时间为准。
-                log.warn("订单支付成功，异步回调丢失，执行掉单补偿。订单号:{}"
+                log.info("订单支付成功，异步回调丢失，执行掉单补偿。订单号:{}"
                         , purchase.getOrderId());
+                //回查补偿触发时，如果订单为需要人工则可以清除此状态。这和补偿成功是原子的。
+                if (Boolean.TRUE.equals(purchase.getRequireManual())) {
+                    purchase.setRequireManual(false);
+                }
                 if(!alipayService.handleRechargeSuccess(purchase)){
                     log.warn("[需要人工核查]支付订单回查补偿未成功。订单号:{},用户ID:{}",
                             purchase.getOrderId(),purchase.getUserId());

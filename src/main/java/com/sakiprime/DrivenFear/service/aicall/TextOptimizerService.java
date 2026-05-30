@@ -10,5 +10,8 @@ import reactor.core.publisher.Flux;
  */
 public interface TextOptimizerService {
 
+    /** 扣款+刷新Redis，返回是否成功 */
+    boolean tryDeductAndRefresh(String userId);
+
     Flux<String> optimize(String taskType, String userPrompt);
 }

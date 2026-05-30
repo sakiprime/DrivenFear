@@ -34,6 +34,7 @@ public class UserEntity implements Serializable {
     /**
      * 密码
      */
+    @TableField(select = false)
     private String password;
     /**
      * 电子邮件

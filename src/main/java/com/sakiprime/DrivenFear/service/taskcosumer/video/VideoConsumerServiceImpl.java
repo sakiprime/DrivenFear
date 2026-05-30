@@ -1,4 +1,4 @@
-package com.sakiprime.DrivenFear.service.taskcosumer.text;
+package com.sakiprime.DrivenFear.service.taskcosumer.video;
 
 import com.sakiprime.DrivenFear.common.util.Result;
 import com.sakiprime.DrivenFear.component.MailDirectComponent;
@@ -19,16 +19,10 @@ import org.springframework.stereotype.Service;
 
 import static com.sakiprime.DrivenFear.config.RabbitConfig.FAILED_TASK_QUEUE;
 
-/**
- * 任务消费者服务实现
- *
- * @author 凋零
- * @since 2026/05/04
- */
 @Service
 @RequiredArgsConstructor
 @Slf4j
-public class TextTaskConsumerServiceImpl implements TextTaskConsumerService {
+public class VideoConsumerServiceImpl implements VideoConsumerService {
     private final AICallTaskMapper aiCallTaskMapper;
     private final UserMapper userMapper;
     private final TaskConsumerTransactionService transactionService;
@@ -36,24 +30,17 @@ public class TextTaskConsumerServiceImpl implements TextTaskConsumerService {
     private final MailDirectComponent mailDirectComponent;
     private final UserCommonService userCommonService;
     private final AITaskFactory aiTaskFactory;
-    /**
-     * 保存订单和扣款
-     *
-     * @param request 请求
-     * @return boolean
-     */
+
     @Override
     public boolean saveOrderAndDeduction(AICallRequestDTO request) {
-
-        for(int i=0;i<2;i++) {
+        for (int i = 0; i < 2; i++) {
             try {
                 transactionService.saveOrderAndDeductionTransaction(request);
                 return true;
             } catch (RuntimeException e) {
-            //log打印已在事务方法内部完成
             }
         }
-        String logInfo = String.format("文本生成任务存储/扣款失败|用户:%s,订单:%s", request.getUserId(),request.getOrderId());
+        String logInfo = String.format("视频生成任务存储/扣款失败|用户:%s,订单:%s", request.getUserId(), request.getOrderId());
         userCommonService.refreshUserTokenRedisFromMySQL(request.getUserId());
         MessageCorrelationData correlation = new MessageCorrelationData(
                 FAILED_TASK_QUEUE,
@@ -61,88 +48,69 @@ public class TextTaskConsumerServiceImpl implements TextTaskConsumerService {
                 logInfo,
                 MessageCorrelationData.AI_TASK
         );
-        //推送任务到死信队列
-        rabbitTemplate.convertAndSend(FAILED_TASK_QUEUE,correlation,correlation);
+        rabbitTemplate.convertAndSend(FAILED_TASK_QUEUE, correlation, correlation);
         return false;
-
     }
 
-    /**
-     * 标记失败任务
-     *
-     * @param task 任务
-     * @return boolean
-     */
     @Override
     public boolean markFailedTask(AICallTaskEntity task) {
-        //如果任务已经被标记，则直接返回true。
-    if (aiCallTaskMapper.selectById(task.getOrderId()) != null) {
+        if (aiCallTaskMapper.selectById(task.getOrderId()) != null) {
             return true;
-    }
-    String userId = task.getUserId();
-    task.setTaskStatus("FAILED");
-    task.setRequireManual(true);
-    //标记用户
-    boolean markSuccess = userMapper.updateTaskNeedManual(userId,true)>0;
-    boolean insertSuccess = aiCallTaskMapper.insert(task)>0;
-    return markSuccess && insertSuccess;
+        }
+        String userId = task.getUserId();
+        task.setTaskStatus("FAILED");
+        task.setRequireManual(true);
+        boolean markSuccess = userMapper.updateTaskNeedManual(userId, true) > 0;
+        boolean insertSuccess = aiCallTaskMapper.insert(task) > 0;
+        return markSuccess && insertSuccess;
     }
 
-
-    /**
-     * 将任务发送到API
-     *
-     * @param orderId 订单号
-     * @return {@link Result }<{@link Void }>
-     */
     @Override
     public void markApiCallFailed(Long orderId) {
         AICallTaskEntity task = aiCallTaskMapper.selectById(orderId);
         if (task == null) {
-            log.warn("无法标记文本任务执行失败：订单不存在, orderId:{}", orderId);
+            log.warn("无法标记视频任务执行失败：订单不存在, orderId:{}", orderId);
             return;
         }
         aiCallTaskMapper.updateTaskStatus(orderId, TaskStatusEnum.FAILED.getCode());
         aiCallTaskMapper.updateTaskRequireManual(orderId, true);
         userMapper.updateTaskNeedManual(task.getUserId(), true);
-        log.warn("文本任务执行已标记为失败，订单号:{}", orderId);
+        log.warn("视频任务执行已标记为失败，订单号:{}", orderId);
     }
 
     @Override
     public Result<Void> sendTaskToApi(Long orderId) {
-
         AICallTaskEntity task = aiCallTaskMapper.selectById(orderId);
-        if(task == null) {
-            log.warn("生成任务执行失败:未知的订单{}",orderId);
+        if (task == null) {
+            log.warn("视频生成任务执行失败:未知的订单{}", orderId);
             return Result.fail();
         }
         String userId = task.getUserId();
-        if(!task.getTaskStatus().equals(TaskStatusEnum.PENDING.getCode())) {
-            log.warn("文本生成任务执行异常:任务已在执行或执行完毕{}",task.getTaskStatus());
+        if (!task.getTaskStatus().equals(TaskStatusEnum.PENDING.getCode())) {
+            log.warn("视频生成任务执行异常:任务已在执行或执行完毕{}", task.getTaskStatus());
             return Result.fail();
         }
-        aiCallTaskMapper.updateTaskStatus(orderId,TaskStatusEnum.PROCESSING.getCode());
+        aiCallTaskMapper.updateTaskStatus(orderId, TaskStatusEnum.PROCESSING.getCode());
 
         AITaskStrategy strategy = aiTaskFactory.getStrategy(task.getTaskType());
-        String result;
+        String videoUrl;
         try {
-            result = strategy.processTask(task);
+            videoUrl = strategy.processTask(task);
         } catch (Exception e) {
-            log.warn("文本生成任务API调用异常，回退状态为PENDING。订单号: {}", orderId, e);
+            log.warn("视频生成任务API调用异常，回退状态为PENDING。订单号: {}", orderId, e);
             aiCallTaskMapper.updateTaskStatus(orderId, TaskStatusEnum.PENDING.getCode());
             return Result.fail();
         }
-        if (result == null) {
+        if (videoUrl == null) {
             aiCallTaskMapper.updateTaskStatus(orderId, TaskStatusEnum.PENDING.getCode());
             return Result.fail();
         }
-        task.setTextMessage(result);
+        task.setVideoUrl(videoUrl);
         task.setTaskStatus(TaskStatusEnum.SUCCESS.getCode());
         aiCallTaskMapper.updateById(task);
-        log.info("生成任务执行成功,订单号:{}",orderId);
+        log.info("视频生成任务执行成功,订单号:{}", orderId);
         String timeStr = task.getCreateTime().toString();
 
-        //由于是返回假数据，所以成功与否只和通知有关。
         return mailDirectComponent.sendNotificationMail(
                 userMapper.selectEmailById(userId),
                 task.getTaskType(),
@@ -152,5 +120,4 @@ public class TextTaskConsumerServiceImpl implements TextTaskConsumerService {
                 userId
         );
     }
-
 }

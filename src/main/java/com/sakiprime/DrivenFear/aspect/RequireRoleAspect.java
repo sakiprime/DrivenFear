@@ -29,12 +29,17 @@ public class RequireRoleAspect {
         }
         //需要登录但未登录。
         if(!StpUtil.isLogin()){
-            log.info("拦截游客行为");
+            log.info("拦截游客行为,接口:{}#{}",
+                    point.getTarget().getClass().getSimpleName(),
+                    point.getSignature().getName());
             return Result.fail(401,"请先登录");
         }
         //安全转换。
         UserEntity user;
         Object obj = StpUtil.getSession().get("loginUser");
+        if (obj == null) {
+            return Result.fail(401,"请先登录");
+        }
         if (obj instanceof UserEntity) {
             user = (UserEntity) obj;
         }

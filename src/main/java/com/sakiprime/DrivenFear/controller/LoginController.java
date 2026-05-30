@@ -7,6 +7,7 @@ import com.sakiprime.DrivenFear.entity.UserDTO;
 import com.sakiprime.DrivenFear.entity.UserEntity;
 import com.sakiprime.DrivenFear.service.login.LoginService;
 import com.sakiprime.DrivenFear.common.util.Result;
+import jakarta.validation.Validator;
 import jakarta.validation.constraints.NotEmpty;
 import lombok.RequiredArgsConstructor;
 import org.springframework.validation.annotation.Validated;
@@ -95,7 +96,6 @@ public class LoginController {
         return mailDirectComponent.verifyMailCode(user.getMailCode(),
                 user.getUserId(),user.getFingerPrint(),email);
     }
-
 
     /**
      * 注册
@@ -191,6 +191,7 @@ public class LoginController {
     @PostMapping("/logout")
     @ApiRateLimit(interFace = "logout",ipLimit = 10)
     public Result<Void> logout() {
+
         StpUtil.logout();
         return Result.success("退出登录成功", null);
     }

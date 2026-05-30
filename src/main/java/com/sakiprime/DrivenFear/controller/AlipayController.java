@@ -1,4 +1,5 @@
 package com.sakiprime.DrivenFear.controller;
+import cn.dev33.satoken.stp.StpUtil;
 import com.alipay.easysdk.factory.Factory;
 import com.alipay.easysdk.payment.page.models.AlipayTradePagePayResponse;
 import com.sakiprime.DrivenFear.annotation.ApiRateLimit;
@@ -50,6 +51,21 @@ public class AlipayController {
         return alipayService.getPackageInfoList();
     }
     /**
+     * 获取当前登录用户ID（下单前确认）
+     *
+     * @return {@link Result }<{@link String }>
+     */
+    @GetMapping("/recharge/current-user")
+    @ApiRateLimit(interFace = "getCurrentUserId")
+    @RequireRole
+    public Result<String> getCurrentUserId(){
+
+        String userId = StpUtil.getLoginIdAsString();
+        log.info("用户{}充值前确认ID", userId);
+        return Result.success(userId);
+    }
+
+    /**
      * 页面支付
      *
      * @param purchasePackage 购买套餐
@@ -61,6 +77,9 @@ public class AlipayController {
     @ApiRateLimit(interFace = "pagePay")
     @RequireRole
     public Result<String> pagePay(@RequestBody UserRechargeOrderEntity purchasePackage) throws Exception {
+        //重置用户ID
+        String userId = StpUtil.getLoginIdAsString();
+        purchasePackage.setUserId(userId);
         Result<AlipayTradePagePayResponse> repResult =alipayService.saveOrderAndInitiatePayment(purchasePackage);
         if (repResult.getCode() != 200){
             return Result.fail(500,repResult.getMsg());
@@ -75,10 +94,9 @@ public class AlipayController {
      * @return {@link String }
      * @throws Exception 异常
      */
-    @PostMapping("/recharge/notify")//暂时用不到
-    @ApiRateLimit(interFace = "alipayNotify")
-    @RequireRole
+    @PostMapping("/recharge/notify")
     public String alipayNotify(HttpServletRequest request) throws Exception {
+
         Map<String, String> params = RequestUtil.convertNotifyParams(request);
         boolean signVerified = Factory.Payment.Common().verifyNotify(params);
         if (!signVerified) {

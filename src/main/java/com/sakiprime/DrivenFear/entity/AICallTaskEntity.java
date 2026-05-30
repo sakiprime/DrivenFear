@@ -5,6 +5,8 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
@@ -24,6 +26,7 @@ public class AICallTaskEntity {
      * 订单号
      */
     @TableId
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long orderId;
     /**
      * 用户ID
@@ -51,6 +54,18 @@ public class AICallTaskEntity {
      * 参数
      */
     private String params;
+    /**
+     * 预编码模板JSON
+     */
+    private String template;
+    /**
+     * 外部供应商的任务ID（用于异步查询结果）
+     */
+    private String externalTaskId;
+    /**
+     * 作品描述
+     */
+    private String taskDescription;
     /**
      * 创建时间
      */
@@ -103,6 +118,8 @@ public class AICallTaskEntity {
         this.tokenCost = aicCallRequestDTO.getTokenCost();
         this.taskType = aicCallRequestDTO.getTaskType();
         this.params = aicCallRequestDTO.getParams();
+        this.template = aicCallRequestDTO.getTemplate();
+        this.taskDescription = aicCallRequestDTO.getTaskDescription();
         this.createTime = aicCallRequestDTO.getCreateTime();
         this.updateTime = aicCallRequestDTO.getUpdateTime();
         this.taskStatus = "PENDING";

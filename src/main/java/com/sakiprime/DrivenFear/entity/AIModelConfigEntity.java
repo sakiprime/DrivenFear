@@ -33,4 +33,8 @@ public class AIModelConfigEntity {
      * 状态
      */
     private Boolean status;//是否启用
+    /**
+     * 请求体模板JSON
+     */
+    private String template;//预编码模板: {requestBody, paramsSchema, responsePath}
 }

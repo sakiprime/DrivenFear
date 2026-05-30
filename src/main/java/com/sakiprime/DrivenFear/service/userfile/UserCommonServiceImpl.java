@@ -99,9 +99,9 @@ public class UserCommonServiceImpl implements UserCommonService {
      */
     @Override
     public UserEntity getUserById(String id){
-        //其实在Controller已经去敏过一次咯！
+
         UserEntity user =userMapper.selectById(id);
-        user.setPassword(null);
+        //user.setPassword(null);//其实在Controller已经去敏过一次咯！
         return user;
     }
 
@@ -120,7 +120,7 @@ public class UserCommonServiceImpl implements UserCommonService {
             log.error("session缓存刷新失败，用户ID:{}",userId);
             return Result.fail();
         }
-        doneUpdateUser.setPassword(null);
+        //doneUpdateUser.setPassword(null);
         StpUtil.getSessionByLoginId(userId)
                 .set("loginUser", doneUpdateUser);
         refreshUserTokenRedis(userId);
@@ -153,6 +153,7 @@ public class UserCommonServiceImpl implements UserCommonService {
                 }
                 return Result.fail(500, "系统繁忙，签到失败。");
             }
+            redisTemplate.opsForValue().increment("user:points:" + userId, SIGN_REWARD_TOKENS);
         } catch (Exception e) {
             log.error("用户签到Redis写入异常，userId:{}", userId, e);
             return Result.fail(500, "系统繁忙，签到失败。");
@@ -189,6 +190,7 @@ public class UserCommonServiceImpl implements UserCommonService {
             if (balance == null) {
                 return Result.success(0L);
             }
+            log.info("读取了用户{}在Redis的Token缓存{}", userId, balance);
             return Result.success(Long.parseLong(balance));
         } catch (Exception e) {
             log.warn("读取用户{}在Redis的Token缓存失败", userId, e);
@@ -205,14 +207,14 @@ public class UserCommonServiceImpl implements UserCommonService {
                 tokenBalance = StpUtil.getSessionByLoginId(userId)
                         .getModel("loginUser",UserEntity.class).getTokenBalance();
                 redisTemplate.opsForValue().set(key, String.valueOf(tokenBalance), EXPIRE_TIME, TimeUnit.SECONDS);
-                log.info("成功刷新用户{}在Redis的Token数量缓存。",userId);
+                log.info("成功从Session刷新用户{}在Redis的Token数量缓存。",userId);
                 return Result.success(null);
             }
             catch (Exception e) {
-                log.warn("用户{}在Redis的Token数量缓存刷新失败。第{}次重试",userId,i);
+                log.warn("用户{}在Redis的Token数量缓存从Session刷新失败。第{}次重试",userId,i);
             }
         }
-        log.error("[需要人工核查]用户{}在Redis的Token数量缓存刷新失败。",userId);
+        log.error("[需要人工核查]用户{}在Redis的Token数量缓存从Session刷新失败。",userId);
         return Result.fail(500,"缓存刷新失败");
     }
 
@@ -228,21 +230,17 @@ public class UserCommonServiceImpl implements UserCommonService {
         orderBy = ("heat".equals(orderBy) || "time".equals(orderBy)) ? orderBy : "heat";
         orderType = ("asc".equals(orderType) || "desc".equals(orderType)) ? orderType : "desc";
 
+        Page<AICallTaskEntity> page = new Page<>(current, size);
+        LambdaQueryWrapper<AICallTaskEntity> wrapper = new LambdaQueryWrapper<>();
+
+        wrapper.eq(AICallTaskEntity::getUserId, userId);
+
         if (taskStatus != null && !taskStatus.isBlank()) {
             if (!ALLOWED_TASK_STATUSES.contains(taskStatus)) {
                 taskStatus = "SUCCESS";
             }
+            wrapper.eq(AICallTaskEntity::getTaskStatus, taskStatus);
         }
-        else { //当taskStatus判空时。
-            taskStatus = "SUCCESS";
-        }
-
-        Page<AICallTaskEntity> page = new Page<>(current, size);
-        LambdaQueryWrapper<AICallTaskEntity> wrapper = new LambdaQueryWrapper<>();
-
-        wrapper.eq(AICallTaskEntity::getIsPrivate, false)
-                .eq(AICallTaskEntity::getTaskStatus, taskStatus)
-                .eq(AICallTaskEntity::getUserId, userId);
 
         if (Boolean.TRUE.equals(requireManual)) {
             wrapper.eq(AICallTaskEntity::getRequireManual, true);
@@ -286,20 +284,17 @@ public class UserCommonServiceImpl implements UserCommonService {
         }
         orderType = ("asc".equals(orderType) || "desc".equals(orderType)) ? orderType : "desc";
 
-        if (taskStatus != null && !taskStatus.isBlank()) {
-            if (!ALLOWED_TASK_STATUSES.contains(taskStatus)) {
-                taskStatus = "SUCCESS";
-            }
-        } else {
-            taskStatus = "SUCCESS";
-        }
-
-
         Page<UserRechargeOrderEntity> page = new Page<>(current, size);
         LambdaQueryWrapper<UserRechargeOrderEntity> wrapper = new LambdaQueryWrapper<>();
 
-        wrapper.eq(UserRechargeOrderEntity::getTradeStatus, taskStatus)
-                .eq(UserRechargeOrderEntity::getUserId, userId);
+        if (taskStatus != null && !taskStatus.isBlank()) {
+            if (!ALLOWED_TASK_STATUSES.contains(taskStatus)) {
+                taskStatus = "TRADE_SUCCESS";
+            }
+            wrapper.eq(UserRechargeOrderEntity::getTradeStatus, taskStatus);
+        }
+
+        wrapper.eq(UserRechargeOrderEntity::getUserId, userId);
 
         if (Boolean.TRUE.equals(requireManual)) {
             wrapper.eq(UserRechargeOrderEntity::getRequireManual, true);
@@ -329,6 +324,7 @@ public class UserCommonServiceImpl implements UserCommonService {
             }
         }
 
+        log.info("用户{}查询了充值订单", userId);
         return Result.success(userRechargeMapper.selectPage(page, wrapper));
     }
 

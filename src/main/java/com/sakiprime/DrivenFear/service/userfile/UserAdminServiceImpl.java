@@ -10,14 +10,21 @@ import com.sakiprime.DrivenFear.common.util.Result;
 import com.sakiprime.DrivenFear.common.util.RoleUtil;
 import com.sakiprime.DrivenFear.entity.*;
 import com.sakiprime.DrivenFear.mapper.*;
+import com.sakiprime.DrivenFear.service.aicall.impl.ImageTaskStrategy;
 import com.sakiprime.DrivenFear.service.aicall.impl.TextTaskStrategy;
+import com.sakiprime.DrivenFear.service.aicall.impl.VideoTaskStrategy;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.hash.Jackson2HashMapper;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 
 import static com.sakiprime.DrivenFear.service.aigallery.AIGalleryServiceImpl.ALLOWED_TASK_TYPES;
 
@@ -37,6 +44,14 @@ public class UserAdminServiceImpl implements UserAdminService {
     private final AICallTaskMapper aiCallTaskMapper;
     private final UserRechargeMapper userRechargeMapper;
     private final TextTaskStrategy textTaskStrategy;
+    private final ImageTaskStrategy imageTaskStrategy;
+    private final VideoTaskStrategy videoTaskStrategy;
+    private final UserCommonService userCommonService;
+    private final RedisTemplate<String, Object> redisTemplate;
+    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final Jackson2HashMapper hashMapper = new Jackson2HashMapper(objectMapper, false);
+    private static final String DASHBOARD_CACHE_KEY = "admin:dashboard";
+    private static final long DASHBOARD_CACHE_TTL_SEC = 60;
     private static final List<String> ALLOWED_TASK_STATUSES = List.of(
             "SUCCESS", "FAILED", "PENDING", "PROCESSING"
     );
@@ -127,7 +142,7 @@ public class UserAdminServiceImpl implements UserAdminService {
         if(user == null){
             return Result.fail(400,"不存在此用户。");
         }
-        user.setPassword(null);
+        //user.setPassword(null);
         return Result.success(user);
     }
 
@@ -185,6 +200,7 @@ public class UserAdminServiceImpl implements UserAdminService {
         if(token.compareTo(0) > 0){//增加点数时。
             if(userMapper.increaseTokenBalanceAtomic(userId,token)>0){
                 log.info("成功给用户{}增加了{}点Token。",userId,token);
+                userCommonService.refreshUserTokenRedisFromMySQL(userId);
                 return Result.success(null);
             }
             log.warn("给用户{}增加{}点Token失败。",userId,token);
@@ -193,6 +209,7 @@ public class UserAdminServiceImpl implements UserAdminService {
         else{//扣除点数时。
             if(userMapper.increaseTokenBalanceAtomic(userId,token)>0){
                 log.info("成功给用户{}扣除了{}点Token。",userId,-token);
+                userCommonService.refreshUserTokenRedisFromMySQL(userId);
                 return Result.success(null);
             }
             log.warn("给用户{}扣除{}点Token失败。",userId,token);
@@ -211,10 +228,34 @@ public class UserAdminServiceImpl implements UserAdminService {
 
         boolean insertSuccess =rechargePackageMapper.insert(packageEntity) > 0;
         if(insertSuccess){
+            redisTemplate.delete("recharge:package:list");
             log.info("[Admin]创建了充值套餐{}",packageEntity.getPackageName());
             return Result.success("创建充值套餐成功。",null);
         }
         return Result.fail();
+    }
+
+    /**
+     * 更新充值套餐
+     *
+     * @param packageEntity 包实体
+     * @return {@link Result }<{@link Void }>
+     */
+    @Override
+    public Result<Void> updateRechargePackage(RechargePackageEntity packageEntity) {
+
+        if (packageEntity.getId() == null) {
+            return Result.fail(400, "套餐ID不能为空");
+        }
+        if (rechargePackageMapper.selectById(packageEntity.getId()) == null) {
+            return Result.fail(400, "套餐ID对应的充值套餐不存在。");
+        }
+        if (rechargePackageMapper.updateById(packageEntity) > 0) {
+            redisTemplate.delete(List.of("recharge:package:list", "recharge:package:" + packageEntity.getId()));
+            log.info("[Admin]更新了充值套餐{}", packageEntity.getPackageName());
+            return Result.success("更新充值套餐成功。", null);
+        }
+        return Result.fail(500, "更新充值套餐失败。");
     }
 
     /**
@@ -236,6 +277,7 @@ public class UserAdminServiceImpl implements UserAdminService {
         updateWrapper.set(RechargePackageEntity::getOnSale, isOnSale);
 
         if(rechargePackageMapper.update(null, updateWrapper) > 0){
+            redisTemplate.delete(List.of("recharge:package:list", "recharge:package:" + packageId));
             log.info("[Admin]成功调整充值套餐{}的上架状态为{}",packageId,isOnSale);
             return Result.success("充值套餐删除成功。",null);
         }
@@ -252,6 +294,7 @@ public class UserAdminServiceImpl implements UserAdminService {
     @Override
     public Result<Void> deleteRechargePackage(Long packageId) {
         if(rechargePackageMapper.deleteById(packageId) > 0){
+            redisTemplate.delete(List.of("recharge:package:list", "recharge:package:" + packageId));
             log.info("[Admin]删除了充值套餐{}。",packageId);
             return Result.success("充值套餐删除成功。",null);
         }
@@ -280,8 +323,15 @@ public class UserAdminServiceImpl implements UserAdminService {
     public Result<Void> saveOrUpdateAIModelConfig(AIModelConfigEntity aiModelConfigEntity) {
 
         if(aiModelConfigMapper.insertOrUpdate(aiModelConfigEntity)){
-            if(!textTaskStrategy.refreshModelCostMap()){
-                return Result.fail(500,"初始化文本模型配置表失败，已启用兜底配置，请立即重试。");
+            String modelType = aiModelConfigEntity.getModelType();
+            boolean refreshed;
+            switch (modelType != null ? modelType : "") {
+                case "IMAGE" -> refreshed = imageTaskStrategy.refreshModelTemplateMap();
+                case "VIDEO" -> refreshed = videoTaskStrategy.refreshModelTemplateMap();
+                default -> refreshed = textTaskStrategy.refreshModelTemplateMap();
+            }
+            if(!refreshed){
+                return Result.fail(500,"初始化模型配置表失败，已启用兜底配置，请立即重试。");
             }
             log.info("[Admin]修改了模型{}的设置。",aiModelConfigEntity.getId());
             return Result.success("模型设置修改成功。",null);
@@ -300,8 +350,8 @@ public class UserAdminServiceImpl implements UserAdminService {
     public Result<Void> deleteAIModel(Long modelId) {
 
         if(aiModelConfigMapper.deleteById(modelId) > 0){
-            if(!textTaskStrategy.refreshModelCostMap()){
-                return Result.fail(500,"初始化文本模型配置表失败，已启用兜底配置，请立即重试。");
+            if(!(textTaskStrategy.refreshModelTemplateMap() && imageTaskStrategy.refreshModelTemplateMap() && videoTaskStrategy.refreshModelTemplateMap())){
+                return Result.fail(500,"初始化模型配置表失败，已启用兜底配置，请立即重试。");
             }
             log.info("[Admin]删除了模型{}设置。",modelId);
             return Result.success("模型设置删除成功。",null);
@@ -334,19 +384,15 @@ public class UserAdminServiceImpl implements UserAdminService {
         orderBy = ("heat".equals(orderBy) || "time".equals(orderBy)) ? orderBy : "heat";
         orderType = ("asc".equals(orderType) || "desc".equals(orderType)) ? orderType : "desc";
 
+        Page<AICallTaskEntity> page = new Page<>(current, size);
+        LambdaQueryWrapper<AICallTaskEntity> wrapper = new LambdaQueryWrapper<>();
+
         if (taskStatus != null && !taskStatus.isBlank()) {
             if (!ALLOWED_TASK_STATUSES.contains(taskStatus)) {
                 taskStatus = "SUCCESS";
             }
+            wrapper.eq(AICallTaskEntity::getTaskStatus, taskStatus);
         }
-        else { //当taskStatus判空时。
-            taskStatus = "SUCCESS";
-        }
-
-        Page<AICallTaskEntity> page = new Page<>(current, size);
-        LambdaQueryWrapper<AICallTaskEntity> wrapper = new LambdaQueryWrapper<>();
-
-        wrapper.eq(AICallTaskEntity::getTaskStatus, taskStatus);
 
         if (Boolean.TRUE.equals(requireManual)) {
             wrapper.eq(AICallTaskEntity::getRequireManual, true);
@@ -526,5 +572,45 @@ public class UserAdminServiceImpl implements UserAdminService {
             }
         }
         return Result.fail(400,"修改申诉状态失败，提交的订单号有误。");
+    }
+
+    /**
+     * 获取仪表板
+     *
+     * @return {@link Result }<{@link DashboardVO }>
+     */
+    @Override
+    @SuppressWarnings("unchecked")
+    public Result<DashboardVO> getDashboard() {
+        try {
+            Map<Object, Object> cached = redisTemplate.opsForHash().entries(DASHBOARD_CACHE_KEY);
+            if (!cached.isEmpty()) {
+                Map<String, Object> hash = (Map<String, Object>) (Map<?, ?>) cached;
+                DashboardVO vo = objectMapper.convertValue(hash, DashboardVO.class);
+                log.info("[缓存命中]在Redis查询了Dashboard");
+                return Result.success(vo);
+            }
+        } catch (Exception e) {
+            log.warn("读取Dashboard在Redis缓存失败", e);
+        }
+
+        DashboardVO vo;
+        try {
+            vo = aiCallTaskMapper.selectDashboard();
+            log.info("在MySQL查询了Dashboard");
+        } catch (Exception e) {
+            log.error("[缓存未命中]Dashboard在MySQL查询异常", e);
+            return Result.fail(500, "获取概览数据失败");
+        }
+
+        try {
+            Map<String, Object> hash = hashMapper.toHash(vo);
+            redisTemplate.opsForHash().putAll(DASHBOARD_CACHE_KEY, hash);
+            redisTemplate.expire(DASHBOARD_CACHE_KEY, DASHBOARD_CACHE_TTL_SEC, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            log.warn("回写Dashboard在Redis缓存失败", e);
+        }
+
+        return Result.success(vo);
     }
 }

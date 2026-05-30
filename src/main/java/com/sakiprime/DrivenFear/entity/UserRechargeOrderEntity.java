@@ -1,6 +1,8 @@
 package com.sakiprime.DrivenFear.entity;
 
 import com.baomidou.mybatisplus.annotation.*;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -18,6 +20,7 @@ public class UserRechargeOrderEntity {
      * 订单号
      */
     @TableId
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long orderId;//订单ID
     /**
      * 标识符
@@ -62,6 +65,10 @@ public class UserRechargeOrderEntity {
      * 返回网址
      */
     private String returnUrl;
+    /**
+     * Token是否已发放
+     */
+    private Boolean tokenGranted;
     /**
      * 版本
      */

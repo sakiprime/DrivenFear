@@ -78,6 +78,14 @@ public interface UserAdminService {
     Result<Void> toggleRechargePackageSale(Long packageId, Boolean isOnSale);
 
     /**
+     * 更新充值套餐
+     *
+     * @param packageEntity 包实体
+     * @return {@link Result }<{@link Void }>
+     */
+    Result<Void> updateRechargePackage(RechargePackageEntity packageEntity);
+
+    /**
      * 删除充值套餐
      *
      * @param packageId 软件包ID
@@ -174,4 +182,7 @@ public interface UserAdminService {
      * @return {@link Result }<{@link Void }>
      */
     Result<Void> toggleAICallTaskAppealAdmin(String userId, Long orderId, Boolean isAppeal);
+
+    /** 管理后台概览数据 */
+    Result<DashboardVO> getDashboard();
 }
