@@ -14,15 +14,15 @@ public class RabbitDelayConfig {
     public static final String DELAY_DL_ROUTING_KEY = "DELAY_DL_ROUTING_KEY";
 
     @Bean
-    public Queue delayConsumerQueue() {
+    public Queue delayConsumerQueue() { //延时消费队列。
         return QueueBuilder.durable(DELAY_CONSUMER_QUEUE).build();
     }
 
     @Bean
     public Queue delayWaitQueue() {
         return QueueBuilder.durable(DELAY_WAIT_QUEUE)
-                .deadLetterExchange(DELAY_DLX)          // 超时后交给这个死信交换机
-                .deadLetterRoutingKey(DELAY_DL_ROUTING_KEY) // 用这个路由键转发
+                .deadLetterExchange(DELAY_DLX)
+                .deadLetterRoutingKey(DELAY_DL_ROUTING_KEY)
                 .build();
     }
 

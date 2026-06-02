@@ -95,6 +95,7 @@ public class ImageConsumerServiceImpl implements ImageConsumerService {
             return Result.fail();
         }
         String userId = task.getUserId();
+        //幂等校验。
         if (!task.getTaskStatus().equals(TaskStatusEnum.PENDING.getCode())) {
             log.warn("图片生成任务执行异常:任务已在执行或执行完毕{}", task.getTaskStatus());
             return Result.fail();
@@ -112,7 +113,7 @@ public class ImageConsumerServiceImpl implements ImageConsumerService {
         }
         if (imageUrl == null) {
             aiCallTaskMapper.updateTaskStatus(orderId, TaskStatusEnum.PENDING.getCode());
-            log.warn("图片生成任务API调用失败(可能因为请求参数错误)，回退状态为PENDING。订单号: {}", orderId);
+            log.warn("图片生成任务API调用失败(可能因为请求参数错误或拉取资源失败)，回退状态为PENDING。订单号: {}", orderId);
             return Result.fail();
         }
         task.setImageUrl(imageUrl);
